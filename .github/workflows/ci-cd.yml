@@ -1,0 +1,78 @@
+name: DevFlow CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate-build-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate website files
+        shell: bash
+        run: |
+          test -f index.html
+          test -f style.css
+          test -f script.js
+          test -f Dockerfile
+          test -f README.md
+
+      - name: Run simple automated test
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          index = Path('index.html').read_text(encoding='utf-8')
+          style = Path('style.css').read_text(encoding='utf-8')
+          dockerfile = Path('Dockerfile').read_text(encoding='utf-8')
+
+          required_strings = [
+              'DevFlow',
+              'Automated CI/CD Pipeline',
+              'Build. Test. Deploy. Automatically.',
+              'href="#pipeline"',
+              'href="#about"',
+              'style.css',
+              'script.js',
+          ]
+
+          for value in required_strings:
+              if value not in index:
+                  raise SystemExit(f'Missing required content in index.html: {value}')
+
+          if ':root' not in style:
+              raise SystemExit('Missing root styles in style.css')
+
+          if 'FROM nginx' not in dockerfile:
+              raise SystemExit('Dockerfile does not use nginx')
+
+          print('Website validation passed.')
+          PY
+
+      - name: Set Docker image name
+        run: echo "IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/devflow" >> "$GITHUB_ENV"
+
+      - name: Build Docker image
+        shell: bash
+        run: |
+          docker build -t "$IMAGE_NAME:latest" .
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push Docker image
+        shell: bash
+        run: |
+          docker push "$IMAGE_NAME:latest"
